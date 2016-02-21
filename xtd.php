@@ -18,15 +18,9 @@ function helpTisk() {
          "Parametry - a,b,g,input,output\n";
 }
 
-//globalni promenne - vyuziti pro zpracovani argumentu
-$countA = 0;
-$countB = 0;
-$countG = 0;
-$countOut = 0;
-$countIn = 0;
-$countValid = 0;
-$countHeader = 0;
-$countEtc = 0;
+//globalni promenne - vyuziti pro zpracovani argumentu a ponechani hodnot pro dalsi praci
+$countA = 0; $countB = 0; $countG = 0; $countOut = 0; $countIn = 0; $countValid = 0; $etc = 0;
+$countHeader = 0; $countEtc = 0; $input = ""; $output = ""; $hlavicka = ""; $isvalid = ""; $pomocnik = "";
 
 /**
  * Funkce pro vypis chyby a ukonceni programu spravnym navratovym kodem
@@ -63,6 +57,14 @@ function vypisChybu($type) {
     //zavru stream
     fclose(STDERR);
     exit($ex);
+}
+function vyrobXML($vstup) {
+        // pokud je xml nevalidni (coz by se podle zadani nemelo stat) vypisi chybu 4
+        $GLOBALS["input"] =  simplexml_load_string($vstup);
+        if($GLOBALS["input"] === false) {
+            vypisChybu("vstupformat");
+        }
+    zpracujXML($GLOBALS["input"]);
 }
 
 /**
@@ -106,16 +108,33 @@ function zpracovaniVstupu($argc, $argv) {
         }
     }
     if(array_key_exists("input", $zadaneArg)) {
-
+        //je zadany input param, checknu jestli soubor existuje, muzu cist a jde pro cteni..
+        (file_exists($zadaneArg["input"]) && is_readable($zadaneArg["input"]))
+        or vypisChybu("vstup");
+        if(!($GLOBALS["input"] = file_get_contents($zadaneArg["input"])) === true) {
+            vypisChybu("vstup");
+        }
+        $GLOBALS["countIn"]++;
+    } else {
+        //ulozim si stdin do stringu, pri chybe hazi false
+        if(!($GLOBALS["input"] = file_get_contents("php://stdin")) === true) {
+            vypisChybu("vstup");
+        }
     }
     if(array_key_exists("output", $zadaneArg)) {
-
+        $GLOBALS["countOut"]++;
+        $GLOBALS["output"] = $zadaneArg["output"];
+    } else {
+        $GLOBALS["output"] = "php://stdout";
     }
     if(array_key_exists("header", $zadaneArg)) {
-
+        $GLOBALS["countHeader"]++;
+        $GLOBALS["hlavicka"] = $zadaneArg["header"];
     }
     if(array_key_exists("isvalid", $zadaneArg)) {
-        vypisChybu("overeni");
+        (file_exists($zadaneArg["isvalid"]) && is_readable($zadaneArg["isvalid"]))
+        or vypisChybu("vstup");
+        $GLOBALS["isvalid"] = $zadaneArg["isvalid"];
     }
     if(array_key_exists("etc", $zadaneArg)) {
         //osetrim aby to bylo cele cislo a vetsi rovno 0 + osetreni aby nebyly bile znaky
@@ -124,6 +143,7 @@ function zpracovaniVstupu($argc, $argv) {
             if(isset($zadaneArg["b"])) {
                 vypisChybu("parametry");
             } else {
+                $GLOBALS["etc"] = $zadaneArg["etc"];
                 $GLOBALS["countEtc"]++;
             }
         } else {
@@ -148,10 +168,27 @@ function zpracovaniVstupu($argc, $argv) {
         vypisChybu("parametry");
     }
     //overim jestli vse bylo zadano pouze jednou
-    if($GLOBALS["countA"] > 1 || $GLOBALS["countB"] > 1 | $GLOBALS["countG"] > 1 || $GLOBALS["countEtc"] > 1) {
+    if($GLOBALS["countA"] > 1 || $GLOBALS["countB"] > 1 || $GLOBALS["countG"] > 1 || $GLOBALS["countEtc"] > 1 ||
+    $GLOBALS["countIn"] > 1 || $GLOBALS["countOut"] > 1 || $GLOBALS["countHeader"] > 1 || $GLOBALS["countValid"] > 1) {
         vypisChybu("parametry");
     }
 }
 
+function zpracujXML($root, $parent="")
+{
+    foreach ($root as $key => $value) {
+        if (zpracujXML($value, $parent . "" . $key) == 0) {
+            $pom = ($parent . "" . (string)$key . "=" . trim((string)$value) . "\n");
+            $GLOBALS["pomocnik"] = $pom;
+        }
+    }
+    foreach ($root->attributes() as $attrib => $atr) {
+        $GLOBALS["pomocnik"] .= "|$attrib=$atr|";
+    }
+    echo $GLOBALS["pomocnik"];
+}
+// zavolam si funkci na zpracovani vstupnich argumentu
 zpracovaniVstupu($argc, $argv);
+vyrobXML($GLOBALS["input"]);
+
 ?>
