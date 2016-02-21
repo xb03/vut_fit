@@ -20,7 +20,7 @@ function helpTisk() {
 
 //globalni promenne - vyuziti pro zpracovani argumentu a ponechani hodnot pro dalsi praci
 $countA = 0; $countB = 0; $countG = 0; $countOut = 0; $countIn = 0; $countValid = 0; $etc = 0;
-$countHeader = 0; $countEtc = 0; $input = ""; $output = ""; $hlavicka = ""; $isvalid = ""; $pomocnik = "";
+$countHeader = 0; $countEtc = 0; $input = ""; $output = ""; $hlavicka = ""; $isvalid = ""; $DDL = array();
 
 /**
  * Funkce pro vypis chyby a ukonceni programu spravnym navratovym kodem
@@ -65,6 +65,35 @@ function vyrobXML($vstup) {
             vypisChybu("vstupformat");
         }
     zpracujXML($GLOBALS["input"]);
+}
+
+function checkObsahy($tabulky) {
+    global $DDL;
+    //otestuji jestli ma nejaky obsah
+    if(trim($tabulky) == "") {
+        $DDL[$tabulky->getName()] = $DDL[$tabulky->getName()];
+    } else {
+        //pokud obsah ma tak si overim jestli tam uz value neni
+        if(strpos($DDL[$tabulky->getName()], "value BIT") !== false) {
+            $updatedSQL = str_replace("value BIT", prioritaTypu("BIT", urciTyp(strtolower(trim($tabulky)), "obsah")),$DDL[$tabulky->getName()]);
+            $DDL[$tabulky->getName()] = $updatedSQL;
+        } else if(strpos($DDL[$tabulky->getName()], "value INT") !== false) {
+            $updatedSQL = str_replace("value INT", prioritaTypu("INT", urciTyp(strtolower(trim($tabulky)), "obsah")),$DDL[$tabulky->getName()]);
+            $DDL[$tabulky->getName()] = $updatedSQL;
+        } else if(strpos($DDL[$tabulky->getName()], "value FLOAT") !== false) {
+            $updatedSQL = str_replace("value FLOAT", prioritaTypu("FLOAT", urciTyp(strtolower(trim($tabulky)), "obsah")),$DDL[$tabulky->getName()]);
+            $DDL[$tabulky->getName()] = $updatedSQL;
+        } else if(strpos($DDL[$tabulky->getName()], "value NVARCHAR") !== false) {
+            $updatedSQL = str_replace("value NVARCHAR", prioritaTypu("NVARCHAR", urciTyp(strtolower(trim($tabulky)), "obsah")),$DDL[$tabulky->getName()]);
+            $DDL[$tabulky->getName()] = $updatedSQL;
+        } else if(strpos($DDL[$tabulky->getName()], "value NTEXT") !== false) {
+            $updatedSQL = str_replace("value NTEXT", prioritaTypu("NTEXT", urciTyp(strtolower(trim($tabulky)), "obsah")),$DDL[$tabulky->getName()]);
+            $DDL[$tabulky->getName()] = $updatedSQL;
+        } else {
+            //kdyz tam value jeste neni tak ho tam vytvorim
+            $DDL[$tabulky->getName()] .= ", value ".urciTyp(strtolower(trim($tabulky)), "obsah");
+        }
+    }
 }
 
 /**
@@ -174,21 +203,106 @@ function zpracovaniVstupu($argc, $argv) {
     }
 }
 
-function zpracujXML($root, $parent="")
-{
-    foreach ($root as $key => $value) {
-        if (zpracujXML($value, $parent . "" . $key) == 0) {
-            $pom = ($parent . "" . (string)$key . "=" . trim((string)$value) . "\n");
-            $GLOBALS["pomocnik"] = $pom;
+function urciTyp($hodnota, $typ) {
+    if($typ == "obsah") {
+        if ($hodnota === "0" || $hodnota === "1" || $hodnota == "true" || $hodnota == "false") {
+            return "BIT";
+        } else if (is_numeric($hodnota)) {
+            if(strpos($hodnota, ".") || strpos($hodnota, "e") || strpos($hodnota, "f") || strpos($hodnota, "E") || strpos($hodnota, "F")) {
+                $pom = floatval($hodnota);
+            } else {
+                $pom = intval($hodnota);
+            }
+            if (is_int($pom)) {
+                return "INT";
+            } else {
+                return "FLOAT";
+            }
+        } else {
+            return "NTEXT";
+        }
+    } else if($typ == "atribut") {
+        //atributu
+    } else {
+        // podelementu
+    }
+}
+function prioritaTypu($puvodni, $novy) {
+    switch($puvodni) {
+        case "BIT":
+            switch($novy) {
+                case "BIT":
+                    return "value BIT";
+                    break;
+                default:
+                    return "value $novy";
+            }
+            break;
+        case "INT":
+            switch($novy) {
+                case "BIT":
+                case "INT":
+                    return "value INT";
+                default:
+                    return "value $novy";
+            }
+            break;
+        case "FLOAT":
+            switch($novy) {
+                case "BIT":
+                case "INT":
+                case "FLOAT":
+                    return "value FLOAT";
+                default:
+                    return "value $novy";
+            }
+            break;
+        case "NVARCHAR":
+            switch($novy) {
+                case "NTEXT":
+                    return "value $novy";
+                default:
+                    return "value NVARCHAR";
+            }
+            break;
+        case "NTEXT":
+            return "value NTEXT";
+            break;
+    }
+}
+
+function zpracujXML($root) {
+    /**
+     * Globalni pole, ve kterem budu mit ulozene veskere DDL queries..
+     * Tvar $DDL:
+     * $DDL[tabulka]
+     * [tabulka] = nazvy jednotlivych elementu (vzniknou z nich tabulky)
+     * - pro kazdou tabulku je pote hodnota obsahujici SQL
+     */
+    global $DDL;
+    //projedu vsechny elementy a ulozim si je jako objekty $tabulky
+    foreach($root as $tabulky) {
+        //pro praci v poli potrebuju stringy, takze ziskam jmeno pres getName
+        if(!(array_key_exists($tabulky->getName(), $DDL))) {
+            //pokud neexistuje tak vytvorim prikaz pro CREATE TABLE + primarni klic
+            $prikaz = "CREATE TABLE " . strtolower($tabulky->getName()) . " ( PRK_" . strtolower($tabulky->getName()) . "_ID INT PRIMARY KEY";
+            // do DDL si ulozim prikaz
+            $DDL[$tabulky->getName()] = $prikaz;
+            }
+            checkObsahy($tabulky);
+            //***********************************************
+                foreach($root->attributes() as $atributy) {
+                    
+                }
+            //***********************************************
+        if($tabulky->count() !== 0) {
+            zpracujXML($tabulky);
         }
     }
-    foreach ($root->attributes() as $attrib => $atr) {
-        $GLOBALS["pomocnik"] .= "|$attrib=$atr|";
-    }
-    echo $GLOBALS["pomocnik"];
 }
+
 // zavolam si funkci na zpracovani vstupnich argumentu
 zpracovaniVstupu($argc, $argv);
 vyrobXML($GLOBALS["input"]);
-
+print_r($DDL);
 ?>
